@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -19,15 +20,21 @@ class AuthService {
       );
       User? user = userCredential.user;
       if (user != null) {
-        // Lưu thông tin người dùng vào Firestore với cấu trúc giống dữ liệu hiện có
+        // Lấy FCM token
+        String? fcmToken = await FirebaseMessaging.instance.getToken();
+        if (fcmToken == null) {
+          print('Failed to get FCM token during sign up');
+        }
+        // Lưu thông tin người dùng vào Firestore
         await _firestore.collection('users').doc(user.uid).set({
-          'created_at': FieldValue.serverTimestamp(), // Lưu thời gian tạo (sẽ tự động chuyển thành ISO 8601 string)
+          'created_at': FieldValue.serverTimestamp(),
           'email': email,
-          'id': user.uid, // id giống user_id
+          'id': user.uid,
           'is_active': true,
           'role': 'user',
-          'user_id': user.uid, // user_id giống uid từ Firebase Auth
-          'username': username ?? email.split('@')[0], // Nếu không có username, dùng phần trước @ của email
+          'user_id': user.uid,
+          'username': username ?? email.split('@')[0],
+          'fcm_token': fcmToken, // Lưu FCM token
         }, SetOptions(merge: true));
       }
     } catch (e) {
@@ -38,7 +45,23 @@ class AuthService {
 
   // Đăng nhập người dùng
   Future<void> signIn(String email, String password) async {
-    await _auth.signInWithEmailAndPassword(email: email, password: password);
+    try {
+      await _auth.signInWithEmailAndPassword(email: email, password: password);
+      // Cập nhật FCM token sau khi đăng nhập
+      String? fcmToken = await FirebaseMessaging.instance.getToken();
+      if (fcmToken == null) {
+        print('Failed to get FCM token during sign in');
+      }
+      if (_auth.currentUser != null) {
+        await _firestore.collection('users').doc(_auth.currentUser!.uid).set(
+          {'fcm_token': fcmToken},
+          SetOptions(merge: true),
+        );
+      }
+    } catch (e) {
+      print('Error during sign in: $e');
+      rethrow;
+    }
   }
 
   // Đăng xuất
