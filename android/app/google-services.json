@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "273138571552",
+    "project_id": "reactjs032025",
+    "storage_bucket": "reactjs032025.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:273138571552:android:3c9930dc6482fd5b9f1f45",
+        "android_client_info": {
+          "package_name": "com.example.chat_app2"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "273138571552-qb0ga0d97bfopqam4vmkokcjlejub5j2.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDhE9EWyf9TzrPnHmjjWFyU1i-5Mz2ifHo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "273138571552-qb0ga0d97bfopqam4vmkokcjlejub5j2.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
