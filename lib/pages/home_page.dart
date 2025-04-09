@@ -9,6 +9,8 @@ class HomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    String currentUserId = _chatService.getCurrentUserId();
+
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.background,
       appBar: AppBar(
@@ -19,9 +21,56 @@ class HomePage extends StatelessWidget {
       drawer: Drawer(
         child: ListView(
           children: [
-            const DrawerHeader(
-              decoration: BoxDecoration(color: Colors.blue),
-              child: Icon(Icons.message, size: 50, color: Colors.white),
+            DrawerHeader(
+              decoration: const BoxDecoration(color: Colors.blue),
+              child: FutureBuilder<Map<String, dynamic>?>(
+                future: _auth.getCurrentUserInfo(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError) {
+                    return const Center(
+                      child: Text(
+                        "Error loading user info",
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    );
+                  }
+                  if (!snapshot.hasData || snapshot.data == null) {
+                    return const Center(
+                      child: Text(
+                        "User info not found",
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    );
+                  }
+
+                  final userInfo = snapshot.data!;
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        userInfo['username'] ?? 'N/A',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        userInfo['email'] ?? 'N/A',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
             ),
             ListTile(
               leading: const Icon(Icons.home),
@@ -44,7 +93,7 @@ class HomePage extends StatelessWidget {
           ],
         ),
       ),
-      body: StreamBuilder(
+      body: StreamBuilder<List<Map<String, dynamic>>>(
         stream: _chatService.getUsersStream(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -61,17 +110,37 @@ class HomePage extends StatelessWidget {
             itemCount: users.length,
             itemBuilder: (context, index) {
               final user = users[index];
-              // Kiểm tra dữ liệu trước khi truyền
-              if (user['user_id'] == null) {
-                print('User missing user_id: $user');
-                return const SizedBox.shrink(); // Bỏ qua nếu thiếu user_id
-              }
               String displayName = user['username']?.isNotEmpty == true
                   ? user['username']
                   : user['email'] ?? 'Unknown';
-              return UserTile(
-                email: displayName,
-                onTap: () => Navigator.pushNamed(context, '/chat', arguments: user),
+              String otherUserId = user['user_id'];
+
+              return StreamBuilder<int>(
+                stream: _chatService.getUnreadMessagesCount(currentUserId, otherUserId),
+                builder: (context, unreadSnapshot) {
+                  if (unreadSnapshot.connectionState == ConnectionState.waiting) {
+                    return UserTile(
+                      email: displayName,
+                      unreadCount: 0,
+                      onTap: () => Navigator.pushNamed(context, '/chat', arguments: user),
+                    );
+                  }
+                  if (unreadSnapshot.hasError) {
+                    print('Error fetching unread count for $otherUserId: ${unreadSnapshot.error}');
+                    return UserTile(
+                      email: displayName,
+                      unreadCount: 0,
+                      onTap: () => Navigator.pushNamed(context, '/chat', arguments: user),
+                    );
+                  }
+                  int unreadCount = unreadSnapshot.data ?? 0;
+                  print('Unread count for $otherUserId: $unreadCount');
+                  return UserTile(
+                    email: displayName,
+                    unreadCount: unreadCount,
+                    onTap: () => Navigator.pushNamed(context, '/chat', arguments: user),
+                  );
+                },
               );
             },
           );

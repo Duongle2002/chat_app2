@@ -68,4 +68,31 @@ class AuthService {
   Future<void> signOut() async {
     await _auth.signOut();
   }
+
+  // Lấy thông tin người dùng hiện tại
+  Future<Map<String, dynamic>?> getCurrentUserInfo() async {
+    try {
+      User? user = _auth.currentUser;
+      if (user == null) {
+        throw Exception('No user is currently signed in');
+      }
+      DocumentSnapshot doc = await _firestore.collection('users').doc(user.uid).get();
+      if (!doc.exists) {
+        throw Exception('User data not found in Firestore');
+      }
+      return doc.data() as Map<String, dynamic>;
+    } catch (e) {
+      print('Error fetching user info: $e');
+      return null;
+    }
+  }
+
+  // Lấy UID của người dùng hiện tại
+  String getCurrentUserId() {
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw Exception('User is not authenticated');
+    }
+    return user.uid;
+  }
 }

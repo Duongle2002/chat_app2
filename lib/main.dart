@@ -9,6 +9,8 @@ import 'package:chat_app2/pages/home_page.dart';
 import 'package:chat_app2/pages/chat_page.dart';
 import 'package:chat_app2/pages/settings_page.dart';
 import 'package:chat_app2/orgate/auth_gate.dart';
+import 'package:provider/provider.dart';
+import 'package:chat_app2/providers/theme_provider.dart';
 
 // Hàm xử lý thông báo khi ứng dụng ở trạng thái background
 @pragma('vm:entry-point')
@@ -91,27 +93,27 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        colorScheme: ColorScheme.fromSwatch().copyWith(
-          primary: Colors.blue,
-          secondary: Colors.blueAccent,
-          background: Colors.grey[200],
-        ),
+    return ChangeNotifierProvider(
+      create: (context) => ThemeProvider(),
+      child: Consumer<ThemeProvider>(
+        builder: (context, themeProvider, child) {
+          return MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: themeProvider.themeData, // Sử dụng theme từ ThemeProvider
+            initialRoute: '/auth',
+            routes: {
+              '/auth': (context) => AuthGate(),
+              '/login': (context) => LoginPage(),
+              '/register': (context) => const RegisterPage(),
+              '/home': (context) => HomePage(),
+              '/chat': (context) => ChatPage(
+                otherUser: ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>,
+              ),
+              '/settings': (context) =>  SettingsPage(),
+            },
+          );
+        },
       ),
-      initialRoute: '/auth',
-      routes: {
-        '/auth': (context) => AuthGate(),
-        '/login': (context) =>  LoginPage(),
-        '/register': (context) => const RegisterPage(),
-        '/home': (context) =>  HomePage(),
-        '/chat': (context) => ChatPage(
-          otherUser: ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>,
-        ),
-        '/settings': (context) =>  SettingsPage(),
-      },
     );
   }
 }

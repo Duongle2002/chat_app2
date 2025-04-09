@@ -1,35 +1,40 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'auth_service.dart';
 import 'fcm_service.dart';
 
 class ChatService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FCMService _fcmService = FCMService();
-
-  // Lấy ID người dùng hiện tại
-  String getCurrentUserId() {
-    return _auth.currentUser!.uid;
-  }
+  final AuthService _authService = AuthService();
+  final FCMService _fcmService = FCMService(); // Thêm FCMService
 
   // Lấy danh sách người dùng
   Stream<List<Map<String, dynamic>>> getUsersStream() {
     return _firestore.collection('users').snapshots().map((snapshot) {
-      final users = snapshot.docs
-          .where((doc) {
-        final userData = doc.data();
-        return userData['user_id'] != _auth.currentUser!.uid;
-      })
-          .map((doc) => doc.data())
-          .toList();
-      print('Fetched users: $users');
-      return users;
+      return snapshot.docs.map((doc) => doc.data() as Map<String, dynamic>).toList();
     });
   }
 
-  // Gửi tin nhắn và thông báo
+  // Lấy UID của người dùng hiện tại
+  String getCurrentUserId() {
+    return _authService.getCurrentUserId();
+  }
+
+  // Lấy tin nhắn giữa hai người dùng
+  Stream<QuerySnapshot> getMessages(String userId, String otherUserId) {
+    List<String> ids = [userId, otherUserId];
+    ids.sort();
+    String chatRoomId = ids.join("_");
+    return _firestore
+        .collection('chat_rooms')
+        .doc(chatRoomId)
+        .collection('messages')
+        .orderBy('timestamp', descending: true)
+        .snapshots();
+  }
+
+  // Gửi tin nhắn
   Future<void> sendMessage(String receiverId, String message) async {
-    String senderId = _auth.currentUser!.uid;
+    String senderId = getCurrentUserId();
     List<String> ids = [senderId, receiverId];
     ids.sort();
     String chatRoomId = ids.join("_");
@@ -44,48 +49,87 @@ class ChatService {
       'receiverId': receiverId,
       'message': message,
       'timestamp': FieldValue.serverTimestamp(),
+      'isRead': false,
     });
 
-    // Lấy thông tin người nhận (bao gồm FCM token)
+    // Lấy thông tin người gửi
+    DocumentSnapshot senderDoc = await _firestore.collection('users').doc(senderId).get();
+    if (!senderDoc.exists) {
+      print('Sender not found');
+      return;
+    }
+    final senderData = senderDoc.data() as Map<String, dynamic>;
+    final senderName = senderData['username'] ?? senderData['email'];
+
+    // Lấy fcm_token của người nhận
     DocumentSnapshot receiverDoc = await _firestore.collection('users').doc(receiverId).get();
     if (!receiverDoc.exists) {
-      print('Receiver document not found for ID: $receiverId');
+      print('Receiver not found');
+      return;
+    }
+    final receiverData = receiverDoc.data() as Map<String, dynamic>;
+    final fcmToken = receiverData['fcm_token'];
+
+    if (fcmToken == null) {
+      print('No FCM token for receiver');
       return;
     }
 
-    Map<String, dynamic>? receiverData = receiverDoc.data() as Map<String, dynamic>?;
-    if (receiverData == null) {
-      print('Receiver data is null for ID: $receiverId');
-      return;
-    }
+    // Gửi thông báo
+    await _fcmService.sendNotification(
+      fcmToken,
+      'New message from $senderName',
+      message,
+    );
+  }
 
-    if (receiverData['fcm_token'] != null) {
-      String receiverToken = receiverData['fcm_token'];
-      String senderUsername = receiverData['username'] ?? _auth.currentUser!.email!.split('@')[0];
-      print('Sending notification to token: $receiverToken');
+  // Đánh dấu tin nhắn là đã đọc
+  Future<void> markMessagesAsRead(String userId, String otherUserId) async {
+    try {
+      List<String> ids = [userId, otherUserId];
+      ids.sort();
+      String chatRoomId = ids.join("_");
+      print('Marking messages as read - ChatRoomId: $chatRoomId, UserId: $userId, OtherUserId: $otherUserId');
 
-      // Gửi thông báo qua FCM API V1
-      await _fcmService.sendNotification(
-        receiverToken,
-        "New Message from $senderUsername",
-        message,
-      );
-    } else {
-      print('Receiver FCM token not found for ID: $receiverId');
+      QuerySnapshot unreadMessages = await _firestore
+          .collection('chat_rooms')
+          .doc(chatRoomId)
+          .collection('messages')
+          .where('receiverId', isEqualTo: userId)
+          .where('senderId', isEqualTo: otherUserId)
+          .where('isRead', isEqualTo: false)
+          .get();
+
+      print('Found ${unreadMessages.docs.length} unread messages');
+
+      for (var doc in unreadMessages.docs) {
+        await doc.reference.update({'isRead': true});
+        print('Updated isRead for message: ${doc.id}');
+      }
+    } catch (e) {
+      print('Error marking messages as read: $e');
+      rethrow;
     }
   }
 
-  // Lấy tin nhắn
-  Stream<QuerySnapshot> getMessages(String userId, String otherUserId) {
+  // Lấy số tin nhắn chưa đọc
+  Stream<int> getUnreadMessagesCount(String userId, String otherUserId) {
     List<String> ids = [userId, otherUserId];
     ids.sort();
     String chatRoomId = ids.join("_");
+    print('Fetching unread messages - ChatRoomId: $chatRoomId, UserId: $userId, OtherUserId: $otherUserId');
 
     return _firestore
         .collection('chat_rooms')
         .doc(chatRoomId)
         .collection('messages')
-        .orderBy('timestamp', descending: true)
-        .snapshots();
+        .where('receiverId', isEqualTo: userId)
+        .where('senderId', isEqualTo: otherUserId)
+        .where('isRead', isEqualTo: false)
+        .snapshots()
+        .map((snapshot) {
+      print('Unread messages count: ${snapshot.docs.length}');
+      return snapshot.docs.length;
+    });
   }
 }

@@ -1,92 +1,56 @@
 import 'package:flutter/material.dart';
-import '../components/my_text_field.dart';
-import '../components/chat_bubble.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../services/auth_service.dart';
 import '../services/chat_service.dart';
+import '../components/chat_bubble.dart';
 
-class ChatPage extends StatefulWidget {
+class ChatPage extends StatelessWidget {
   final Map<String, dynamic> otherUser;
-
-  const ChatPage({required this.otherUser});
-
-  @override
-  _ChatPageState createState() => _ChatPageState();
-}
-
-class _ChatPageState extends State<ChatPage> {
   final ChatService _chatService = ChatService();
+  final AuthService _authService = AuthService();
   final TextEditingController _messageController = TextEditingController();
-  final ScrollController _scrollController = ScrollController();
 
-  void _sendMessage() {
-    if (_messageController.text.isNotEmpty) {
-      final receiverId = widget.otherUser['user_id'];
-      if (receiverId != null) {
-        _chatService.sendMessage(receiverId, _messageController.text);
-        _messageController.clear();
-        _scrollToBottom();
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Error: Receiver ID is null")),
-        );
-      }
-    }
-  }
-
-  void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          0,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
-      }
-    });
-  }
+  ChatPage({super.key, required this.otherUser});
 
   @override
   Widget build(BuildContext context) {
-    final currentUserId = _chatService.getCurrentUserId();
+    String currentUserId = _chatService.getCurrentUserId();
+    String otherUserId = otherUser['user_id'];
 
-    // Kiểm tra dữ liệu đầu vào
-    if (widget.otherUser['user_id'] == null) {
-      print('Invalid user data in ChatPage: ${widget.otherUser}');
-      return const Scaffold(
-        body: Center(child: Text('Invalid user data: User ID is missing')),
-      );
-    }
-
-    String displayName = widget.otherUser['username']?.isNotEmpty == true
-        ? widget.otherUser['username']
-        : widget.otherUser['email'] ?? 'Unknown User';
+    // Đánh dấu tin nhắn là đã đọc khi mở trang chat
+    _chatService.markMessagesAsRead(currentUserId, otherUserId);
 
     return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.background,
       appBar: AppBar(
-        title: Text(displayName),
+        title: Text(otherUser['username'] ?? otherUser['email'] ?? 'Chat'),
         backgroundColor: Theme.of(context).colorScheme.primary,
         foregroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
       body: Column(
         children: [
           Expanded(
-            child: StreamBuilder(
-              stream: _chatService.getMessages(currentUserId, widget.otherUser['user_id']),
+            child: StreamBuilder<QuerySnapshot>(
+              stream: _chatService.getMessages(currentUserId, otherUserId),
               builder: (context, snapshot) {
-                if (!snapshot.hasData) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
+                if (snapshot.hasError) {
+                  return Center(child: Text("Error: ${snapshot.error}"));
+                }
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return const Center(child: Text("No messages yet"));
+                }
                 final messages = snapshot.data!.docs;
-                _scrollToBottom();
                 return ListView.builder(
                   reverse: true,
-                  controller: _scrollController,
                   itemCount: messages.length,
                   itemBuilder: (context, index) {
-                    final msg = messages[index].data() as Map<String, dynamic>;
+                    final message = messages[index].data() as Map<String, dynamic>;
+                    bool isMe = message['senderId'] == currentUserId; // Đổi tên biến cho rõ nghĩa
                     return ChatBubble(
-                      message: msg['message'] ?? 'No message',
-                      isMe: msg['senderId'] == currentUserId,
+                      message: message['message'],
+                      isMe: isMe, // Sử dụng isMe thay vì isSender
                     );
                   },
                 );
@@ -98,16 +62,21 @@ class _ChatPageState extends State<ChatPage> {
             child: Row(
               children: [
                 Expanded(
-                  child: MyTextField(
+                  child: TextField(
                     controller: _messageController,
-                    hintText: "Type a message",
-                    obscureText: false,
+                    decoration: const InputDecoration(
+                      hintText: "Enter your message...",
+                    ),
                   ),
                 ),
                 IconButton(
                   icon: const Icon(Icons.send),
-                  color: Theme.of(context).colorScheme.primary,
-                  onPressed: _sendMessage,
+                  onPressed: () { // Sử dụng onPressed thay vì onTap
+                    if (_messageController.text.isNotEmpty) {
+                      _chatService.sendMessage(otherUserId, _messageController.text);
+                      _messageController.clear();
+                    }
+                  },
                 ),
               ],
             ),
